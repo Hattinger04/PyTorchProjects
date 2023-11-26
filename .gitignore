@@ -1,2 +1,11 @@
-AlphaZero/model/
-AlphaZero/optimizer/
+Reinforcement/AlphaZero/model/
+Reinforcement/AlphaZero/optimizer/
+Reinforcement/PokemonRed
+
+Supervised/ClothesRecognition/data/images
+Supervised/VoiceRecongnition/AI/data/mini_speech_commands
+Supervised/VoiceRecongnition/AI/data/speech_commands
+Supervised/SchereSteinPapier/img
+Supervised/SchereSteinPapier/model
+Supervised/Digit_Recognition/digit_recognition.keras
+
