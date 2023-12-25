@@ -9,3 +9,7 @@ Supervised/SchereSteinPapier/img
 Supervised/SchereSteinPapier/model
 Supervised/Digit_Recognition/digit_recognition.keras
 
+Study/Transformer/__pycache__
+Study/Transformer/runs
+Study/Transformer/tokenizer_de.json
+Study/Transformer/tokenizer_en.json
