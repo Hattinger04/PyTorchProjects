@@ -10,7 +10,7 @@ from torch.utils.tensorboard import SummaryWriter
 from dataset import BilingualDataset, causal_mask
 from model import build_transformer
 
-from config import get_weights_file_path, get_config
+from config import get_weights_file_path, get_config, latest_weights_file_path
 
 from tqdm import tqdm
 
@@ -45,7 +45,7 @@ def greedy_decode(model, source, source_mask, tokenizer_src, tokenizer_tgt, max_
         # select token with the max probability => greedy search
         _, next_word = torch.max(prob, dim=1) 
         # then append word to next input for following iteration
-        decoder_input = torch.cat([decoder_input, torch.empty(1,1).type_as(source).fill_(next_word.item()).to(device)])
+        decoder_input = torch.cat([decoder_input, torch.empty(1,1).type_as(source).fill_(next_word.item()).to(device)], dim=1)
         if next_word == eos_idx: 
             break
 
@@ -143,8 +143,12 @@ def get_model(config, vocab_src_len, vocab_tgt_len):
 
 
 def train_model(config): 
-    # define the device 
+    # define the device
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    if config["TPU"]: 
+        import torch_xla
+        import torch_xla.core.xla_model as xm
+        device = xm.xla_device()
     print(f"Using device {device}")
 
     # make sure weights folder is created 
@@ -152,6 +156,11 @@ def train_model(config):
 
     train_dataloader, val_dataloader, tokenizer_src, tokenizer_tgt = get_dataset(config)
     model = get_model(config, tokenizer_src.get_vocab_size(), tokenizer_tgt.get_vocab_size()).to(device)
+    # if having multiple gpu's: 
+    if config["count_gpu"] >= 2:  
+        # TODO: not working yet!
+        model = nn.DataParallel(model)
+        print("Using multiple GPU's")
     print(f"Structure of the model: {model}")
     
     # calculate number of paramters 
@@ -165,20 +174,27 @@ def train_model(config):
 
     initial_epoch = 0
     global_step = 0
-    if config["preload"]: 
-        model_filename = get_weights_file_path(config, config["preload"])
-        print(f"Preloading model {model_filename}")
+    preload = config['preload']
+    model_filename = latest_weights_file_path(config) if preload == 'latest' else get_weights_file_path(config, preload) if preload else None
+    if model_filename is not None:
+        print(f'Preloading model {model_filename}')
         state = torch.load(model_filename)
-        initial_epoch = state["epoch"] + 1
-        optimizer.load_state_dict(state["optimizer_state_dict"])
-        global_step = state["global_step"]
+        model.load_state_dict(state['model_state_dict'])
+        initial_epoch = state['epoch'] + 1
+        optimizer.load_state_dict(state['optimizer_state_dict'])
+        global_step = state['global_step']
+    else:
+        print('No model to preload, starting from scratch')
 
     # do not involve padding when calculating loss
     # label_smoothing: take 0.1 of score and give it to the others => helps avoiding overfitting 
     loss_fn = nn.CrossEntropyLoss(ignore_index=tokenizer_src.token_to_id("[PAD]"), label_smoothing=0.1)
 
+    
+
     for epoch in range(initial_epoch, config["num_epochs"]): 
-        batch_iterator = tqdm(train_dataloader, desc=f"Processing epch {epoch:02d}")
+        epoch_loss = 0.0
+        batch_iterator = tqdm(train_dataloader, desc=f"Processing epoch {epoch:02d}")
         for batch in batch_iterator:
             model.train()
             
@@ -203,6 +219,8 @@ def train_model(config):
             writer.add_scalar("train_loss", loss.item(), global_step)
             writer.flush()
 
+            epoch_loss += loss.item()
+
             # backpropagation
             loss.backward() 
 
@@ -212,6 +230,7 @@ def train_model(config):
 
             global_step += 1 
 
+        batch_iterator.write(f"Loss of epoch {epoch}: {epoch_loss/len(train_dataloader)}")
         run_validation(model, val_dataloader, tokenizer_src, tokenizer_tgt, config["seq_len"], device, 
                            lambda msg: batch_iterator.write(msg), global_step, writer)
 

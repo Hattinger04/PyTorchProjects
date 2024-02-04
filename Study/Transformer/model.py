@@ -75,7 +75,7 @@ class FeedForwardBlock(nn.Module):
 
     def forward(self, x): 
         # input = (batch, seq_len, d_model) => (batch, seq_len, d_ff) => (batch, seq_len, d_model)
-        return self.linear_2(self.dropout(self.linear_1(x)))
+        return self.linear_2(self.dropout(torch.relu(self.linear_1(x))))
     
 class MultiHeadAttentionBlock(nn.Module): 
     def __init__(self, d_model: int, h: int, dropout:float) -> None:
@@ -102,6 +102,7 @@ class MultiHeadAttentionBlock(nn.Module):
         
         # mask to prevent certain values to interact with each others
         if mask is not None: 
+            # positions where mask == 0 => write very small number indicating -inf 
             attention_scores.masked_fill_(mask == 0, -1e9)
         attention_scores = attention_scores.softmax(dim=-1) # (batch, h, seq_len, seq_len)
         if dropout is not None: 
